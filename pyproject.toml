@@ -1,0 +1,29 @@
+[project]
+name = "limeattack"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "boto3==1.26.28",
+    "botocore==1.29.28",
+    "nltk==3.7",
+    "numpy==1.24.4",
+    "scikit-learn",
+    "scipy==1.9.1",
+    "tensorflow-gpu==2.11.0",
+    "tensorflow-hub==0.12.0",
+    "torch==1.12.1+cu116",
+    "torchaudio==0.12.1",
+    "transformers>=4.30.0,<4.40.0",
+    "torchvision==0.13.1+cu116",
+]
+[tool.uv.sources]
+torch = { index = "pytorch-cu116" }
+torchvision = { index = "pytorch-cu116" }
+torchaudio = { index = "pytorch-cu116" }
+
+[[tool.uv.index]]
+name = "pytorch-cu116"
+url = "https://download.pytorch.org/whl/cu116"
+explicit = true
