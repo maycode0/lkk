@@ -20,11 +20,14 @@ def split_token(seq):
     return seq.split()
 
 #lime word ranking 
-def lime_word_ranking(text,predictor,true_label):
+def lime_word_ranking(text,predictor,true_label,num_samples=None):
     data = " ".join(text)
     class_names = ['negative','positive']
     explainer = LimeTextExplainer(class_names=class_names,bow=False,split_expression=split_token)
-    exp = explainer.explain_instance(data,predictor,num_features=len(text),labels=[true_label],num_samples=len(text))
+    if num_samples is None:
+        num_samples = len(text)
+    num_samples = max(1, int(num_samples))
+    exp = explainer.explain_instance(data,predictor,num_features=len(text),labels=[true_label],num_samples=num_samples)
     ant = exp.as_index(true_label)
     import_scores = []
     word_index_dict = {}
@@ -34,7 +37,7 @@ def lime_word_ranking(text,predictor,true_label):
     word_index_dict = sorted(word_index_dict.items(),key=lambda x:x[0])
     for i in word_index_dict:
         import_scores.append(i[-1])
-    return import_scores,word_dict
+    return import_scores,word_dict,num_samples
 
 def save_obj(obj, name):
     with open(name + '.pkl', 'wb') as f:
@@ -77,46 +80,62 @@ def pick_most_similar_words_batch(src_words, sim_mat, idx2word, ret_count=10, th
 
 
 def issuccess(predictor,batch_size,all_text_ls,text_ls,true_label,num_queries,k=2,query_budget=100):
-    tmp_prob = []
-    success_text_ls = []
-    _probs = predictor(all_text_ls, batch_size=batch_size)
-    _probs_argmax = torch.argmax(_probs, dim=-1).cpu().numpy()
-    np_true_label = np.array([true_label]*len(all_text_ls))
-    success_text_ls = list(np.array(all_text_ls)[np_true_label!=_probs_argmax])
-    
-    if len(success_text_ls) == 0:
-        num_queries += len(all_text_ls)
-        semantic_sims = []
-        for simi_text in all_text_ls:
-            semantic_sims.append(semantic_sim(" ".join(text_ls)," ".join(simi_text)))
-        semantic_sims = torch.tensor(semantic_sims)
-        a,idx = torch.sort(semantic_sims,descending=True)
-        k_text_ls = []
-        tmp_k = []
-        if len(idx)>k:
-            for i in idx[:int(k/3)]:
-                k_text_ls.append(all_text_ls[i])
-            for i in idx[-int(k/3):]:
-                k_text_ls.append(all_text_ls[i])
-            idx = idx.numpy()[int(k/3):-int(k/3)]
-            #b = b[int(k/3):-int(k/3)]
-            np.random.shuffle(idx)
-            for i in idx[:int(k/3)]:
-                k_text_ls.append(all_text_ls[i])
-        else:
-            for i in idx:
-                k_text_ls.append(all_text_ls[i])
-        
-        return [0,k_text_ls,tmp_k],num_queries
+    queried_text_ls = []
+    tmp_k = []
 
-    semantic = []
-    bb = success_text_ls[0].tolist()
-    num_queries += all_text_ls.index(bb) + 1
-    for i in success_text_ls:
-        semantic.append(semantic_sim(" ".join(i)," ".join(text_ls)))
-    if num_queries>query_budget:
-        return [1,text_ls,num_queries,success_text_ls[semantic.index(max(semantic))]],num_queries
-    return [1,text_ls,num_queries,success_text_ls[semantic.index(max(semantic))]],num_queries
+    if num_queries >= query_budget or len(all_text_ls) == 0:
+        return [0,[text_ls],tmp_k],num_queries
+
+    for start in range(0, len(all_text_ls), batch_size):
+        remaining_queries = query_budget - num_queries
+        if remaining_queries <= 0:
+            break
+        cur_batch_size = min(batch_size, remaining_queries)
+        batch_text_ls = all_text_ls[start:start + cur_batch_size]
+        if len(batch_text_ls) == 0:
+            break
+
+        _probs = predictor(batch_text_ls, batch_size=batch_size)
+        num_queries += len(batch_text_ls)
+        queried_text_ls.extend(batch_text_ls)
+        _probs_argmax = torch.argmax(_probs, dim=-1).cpu().numpy()
+        success_text_ls = [
+            batch_text_ls[idx]
+            for idx, pred_label in enumerate(_probs_argmax)
+            if pred_label != true_label
+        ]
+
+        if len(success_text_ls) > 0:
+            semantic = []
+            for i in success_text_ls:
+                semantic.append(semantic_sim(" ".join(i)," ".join(text_ls)))
+            return [1,text_ls,num_queries,success_text_ls[semantic.index(max(semantic))]],num_queries
+
+    if len(queried_text_ls) == 0:
+        return [0,[text_ls],tmp_k],num_queries
+
+    semantic_sims = []
+    for simi_text in queried_text_ls:
+        semantic_sims.append(semantic_sim(" ".join(text_ls)," ".join(simi_text)))
+    semantic_sims = torch.tensor(semantic_sims)
+    a,idx = torch.sort(semantic_sims,descending=True)
+    k_text_ls = []
+    if len(idx)>k:
+        group_size = max(1, int(k/3))
+        for i in idx[:group_size]:
+            k_text_ls.append(queried_text_ls[int(i)])
+        for i in idx[-group_size:]:
+            k_text_ls.append(queried_text_ls[int(i)])
+        idx = idx.numpy()[group_size:-group_size]
+        #b = b[int(k/3):-int(k/3)]
+        np.random.shuffle(idx)
+        for i in idx[:max(0, k - len(k_text_ls))]:
+            k_text_ls.append(queried_text_ls[int(i)])
+    else:
+        for i in idx:
+            k_text_ls.append(queried_text_ls[int(i)])
+    
+    return [0,k_text_ls,tmp_k],num_queries
 
 
 def auto_beamsearch(predictor,batch_size,text_ls,true_label,num_queries,k_text_ls,words_perturb_idx,start,synonym_words,k=2,query_budget=100):
@@ -146,15 +165,20 @@ def auto_beamsearch(predictor,batch_size,text_ls,true_label,num_queries,k_text_l
 #===================================attack=============================================
 def attack(text_id,fail,text_ls,true_label,predictor,lime_pred,stop_word_set,word2idx, idx2word, cos_sim,synonyms_num=50,sim_score_threshold=0, batch_size=32,import_score_threshold=0.005,pos=1,k=2,query_budget=100):
     num_queries = 0
-    total_queries = 1
     orig_probs = predictor([text_ls]).squeeze()
+    num_queries += 1
     orig_label = torch.argmax(orig_probs)
     if true_label != orig_label:
         fail[text_id] = 0
-        return  [2, orig_label, 0, total_queries]
+        return  [2, orig_label, num_queries]
     else:
-        import_scores,lime_word = lime_word_ranking(text_ls,lime_pred,orig_label.item())
-        total_queries += len(text_ls)
+        remaining_queries = query_budget - num_queries
+        if remaining_queries <= 0:
+            fail[text_id] = 5
+            return [0, num_queries]
+        lime_samples = min(len(text_ls), remaining_queries)
+        import_scores,lime_word,lime_queries = lime_word_ranking(text_ls,lime_pred,orig_label.item(),num_samples=lime_samples)
+        num_queries += lime_queries
         words_perturb = []
         for idx, score in sorted(enumerate(import_scores), key=lambda x: x[1], reverse=True):
             if score > import_score_threshold and text_ls[idx] not in stop_word_set:
@@ -184,40 +208,44 @@ def attack(text_id,fail,text_ls,true_label,predictor,lime_pred,stop_word_set,wor
 
         if len(word_perturb_text_idx)==0 or len(synonym_words) == 0:
             fail[text_id] = 4
-            return [0, total_queries + num_queries]
+            return [0, num_queries]
+
+        if num_queries >= query_budget:
+            fail[text_id] = 5
+            return [0, num_queries]
 
         if len(word_perturb_text_idx)<k:
             suc,num_queries = auto_beamsearch(predictor,batch_size,text_ls,true_label,num_queries,[text_ls],word_perturb_text_idx,0,synonym_words,k=len(word_perturb_text_idx),query_budget=query_budget)
             if suc[0] == 0:
                 fail[text_id] = 1
-                return [0, total_queries + num_queries]
-            return [1, suc[1], suc[2], total_queries + suc[2], suc[3]]
+                return [0, num_queries]
+            return suc
         
         suc,num_queries = auto_beamsearch(predictor,batch_size,text_ls,true_label,num_queries,[text_ls],word_perturb_text_idx,0,synonym_words,k=k,query_budget=query_budget)
         if suc[0] == 1:
-            return [1, suc[1], suc[2], total_queries + suc[2], suc[3]]
+            return suc
 
         k_text_ls = suc[1]
         for start in range(k,len(word_perturb_text_idx),k):
             if  len(word_perturb_text_idx)<start+k:
                 suc,num_queries = auto_beamsearch(predictor,batch_size,text_ls,true_label,num_queries,k_text_ls,word_perturb_text_idx,start,synonym_words,k=len(word_perturb_text_idx)-start,query_budget=query_budget)
                 if suc[0] == 1:
-                    return [1, suc[1], suc[2], total_queries + suc[2], suc[3]]
+                    return suc
                 fail[text_id] = 2
-                return [0, total_queries + num_queries]
+                return [0, num_queries]
             suc,num_queries = auto_beamsearch(predictor,batch_size,text_ls,true_label,num_queries,k_text_ls,word_perturb_text_idx,start,synonym_words,k=k,query_budget=query_budget)
             if suc[0] == 1:
-                return [1, suc[1], suc[2], total_queries + suc[2], suc[3]]
+                return suc
             k_text_ls = suc[1]
         fail[text_id] = 3
-        return [0, total_queries + num_queries]
+        return [0, num_queries]
 
 
 def result_total_queries(result):
-    if result[0] == 1 and len(result) > 4:
-        return result[3]
-    if result[0] == 2 and len(result) > 3:
-        return result[3]
+    if result[0] == 1 and len(result) > 2:
+        return result[2]
+    if result[0] == 2 and len(result) > 2:
+        return result[2]
     if result[0] == 0 and len(result) > 1:
         return result[1]
     return 0
@@ -238,7 +266,7 @@ def evaluation(res,query_budget):
             sim.append(semantic_sim(" ".join(i[-1])," ".join(i[1])))
             change_num += np.sum(np.array(i[-1]) != np.array(i[1]))
             change_all+=len(i[1])
-            if len(i[1])+i[2]<=query_budget and (np.sum(np.array(i[-1]) != np.array(i[1])) / len(i[1]))<=0.1: #query budget and perturb limit
+            if i[2]<=query_budget and (np.sum(np.array(i[-1]) != np.array(i[1])) / len(i[1]))<=0.1: #query budget and perturb limit
                 atk+=1
                 query.append(i[2])
     pert = change_num/change_all if change_all else 0
