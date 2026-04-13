@@ -1,5 +1,6 @@
 import pickle
 import argparse
+import json
 import os
 import numpy as np
 import dataloader
@@ -270,7 +271,39 @@ def evaluation(res,query_budget):
                 atk+=1
                 query.append(i[2])
     pert = change_num/change_all if change_all else 0
-    print("asr:{},sim:{},pert:{},query:{},total_query:{}".format(atk,np.mean(sim),pert,np.mean(query),total_query))
+    metrics = {
+        "asr": int(atk),
+        "sim": float(np.mean(sim)),
+        "pert": float(pert),
+        "query": float(np.mean(query)),
+        "total_query": int(total_query)
+    }
+    print("asr:{},sim:{},pert:{},query:{},total_query:{}".format(
+        metrics["asr"],
+        metrics["sim"],
+        metrics["pert"],
+        metrics["query"],
+        metrics["total_query"]
+    ))
+    return metrics
+
+
+def save_run_log(args, eval_logs, starttime, endtime, log_dir="logs"):
+    os.makedirs(log_dir, exist_ok=True)
+    datasetname = args.dataset_path.rstrip("/").split("/")[-1]
+    timestamp = endtime.strftime("%Y%m%d-%H%M%S-%f")
+    log_path = os.path.join(log_dir, "{}-{}-{}.json".format(timestamp, args.target_model, datasetname))
+    log_data = {
+        "args": vars(args),
+        "start_time": starttime.isoformat(),
+        "end_time": endtime.isoformat(),
+        "runtime_minutes": (endtime - starttime).total_seconds() / 60,
+        "evaluations": eval_logs
+    }
+    with open(log_path, "w") as f:
+        json.dump(log_data, f, indent=2, sort_keys=True)
+    print("log saved: {}".format(log_path))
+    return log_path
 
 
 def run_attack():
@@ -342,7 +375,7 @@ def run_attack():
     args = parser.parse_args()
     texts, labels = dataloader.read_corpus(args.dataset_path)
 
-    data = list(zip(texts, labels))[:10]
+    data = list(zip(texts, labels))[:20]
     print("Cos sim import finished!")
     embeddings, word2idx_vocab, idx2word_vocab = generate_embedding_mat(args.counter_fitting_embeddings_path)
     cos_sim, word2idx_rev, idx2word_rev = csim_matrix(data, embeddings, word2idx_vocab)
@@ -412,18 +445,30 @@ def run_attack():
     orig_texts = []
     attack_result = []
     fail  = {}
+    eval_logs = []
     
     
     for idx, (text, true_label) in enumerate(tqdm.tqdm(data)):
         if idx % 100 == 0 and idx != 0:
-            evaluation(attack_result,args.query_budget)
+            metrics = evaluation(attack_result,args.query_budget)
+            eval_logs.append({
+                "step": "intermediate",
+                "num_examples": idx,
+                "metrics": metrics
+            })
         orig_texts.append(text)
         res = attack(idx,fail,text, true_label, predictor, lime_pred,criteria.filter_words, word2idx_rev, idx2word_vocab, cos_sim,import_score_threshold=-100, sim_score_threshold=args.sim, synonyms_num=args.syn_num,batch_size=32,pos = args.pos, k=args.k,query_budget = args.query_budget)
         attack_result.append(res)
 
     endtime = datetime.datetime.now()
     print("time:{}".format((endtime - starttime).seconds / 60))
-    evaluation(attack_result,args.query_budget)
+    metrics = evaluation(attack_result,args.query_budget)
+    eval_logs.append({
+        "step": "final",
+        "num_examples": len(data),
+        "metrics": metrics
+    })
+    save_run_log(args, eval_logs, starttime, endtime)
     attack_result.append([(endtime - starttime).seconds / 60])
     attack_result.append(fail)
     datasetname = args.dataset_path.split("/")[-1]
