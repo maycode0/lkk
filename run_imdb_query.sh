@@ -4,7 +4,7 @@
 uv run python test.py
 
 
-for q in 50
+for q in 50 200 500 1000 2000
 do
     echo "Running query_budget=$q"
 
@@ -12,13 +12,12 @@ do
         --dataset_path /root/autodl-fs/data/imdb \
         --target_model roberta \
         --k 10 \
-        --syn_num 20 \
+        --syn_num 30 \
         --model_path /root/autodl-fs/modelHub/roberta-base-imdb \
         --word_embeddings_path /root/autodl-fs/embedding/glove.6B.200d.txt \
         --counter_fitting_embeddings_path /root/autodl-fs/embedding/counter-fitted-vectors.txt \
         --query_budget $q \
-        > log_lime_attack_imdb_$q.txt 2>&1
-
+        > log_imdb_limeattack_$q.txt 2>&1
 done
 
 # for q in 50 100 200 500 1000 2000

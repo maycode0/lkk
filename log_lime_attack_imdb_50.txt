@@ -1,17 +1,0 @@
-[nltk_data] Downloading package stopwords to /root/nltk_data...
-[nltk_data]   Package stopwords is already up-to-date!
-Cos sim import finished!
-Building vocab
-<class 'numpy.ndarray'>
-(65713, 300)
-/root/autodl-fs/modelHub/roberta-base-imdb
-Some weights of the model checkpoint at /root/autodl-fs/modelHub/roberta-base-imdb were not used when initializing RobertaForSequenceClassification: ['roberta.pooler.dense.bias', 'roberta.pooler.dense.weight']
-- This IS expected if you are initializing RobertaForSequenceClassification from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
-- This IS NOT expected if you are initializing RobertaForSequenceClassification from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
-Start attacking...
-model:roberta,data:/root/autodl-fs/data/imdb
-para->sim:0,synonyms_num:20,k:10
-origin acc:1.0
-  0%|                                                                                                                                                                          | 0/10 [00:00<?, ?it/s] 10%|████████████████▏                                                                                                                                                 | 1/10 [00:09<01:26,  9.64s/it] 20%|████████████████████████████████▍                                                                                                                                 | 2/10 [00:23<01:36, 12.05s/it] 30%|████████████████████████████████████████████████▌                                                                                                                 | 3/10 [00:31<01:12, 10.42s/it] 40%|████████████████████████████████████████████████████████████████▊                                                                                                 | 4/10 [00:39<00:56,  9.47s/it] 50%|█████████████████████████████████████████████████████████████████████████████████                                                                                 | 5/10 [00:42<00:34,  6.99s/it] 60%|█████████████████████████████████████████████████████████████████████████████████████████████████▏                                                                | 6/10 [00:49<00:27,  6.87s/it] 70%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████▍                                                | 7/10 [00:52<00:16,  5.65s/it] 80%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▌                                | 8/10 [01:02<00:14,  7.13s/it] 90%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▊                | 9/10 [01:06<00:05,  5.99s/it]100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [01:11<00:00,  5.97s/it]100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [01:11<00:00,  7.19s/it]
-time:1.3
-asr:0,sim:0.8333333333333334,pert:0.21241830065359477,query:0.0,total_query:31848
